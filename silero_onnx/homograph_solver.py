@@ -4,8 +4,9 @@ Replicates HomoSolver.__call__ (homosolver.py lines 44-139) with numpy:
 tag/clean/regex/phrase logic is plain Python; only the neural batch goes
 to silero_stress.onnx. No torch import anywhere in this file.
 Data files (versioned runtime tables, see silero_onnx/data/):
-silero_onnx/data/{homodict,phrases,tokenizer}.json + tokdir/ for the
-vendored tokenizer.
+silero_onnx/data/{homodict,phrases,tokenizer}.json, plus a tokdir/
+rebuilt at runtime under the user cache (NOT silero_onnx/data/tokdir/,
+which is an untracked leftover) for the vendored tokenizer.
 """
 import json
 import os

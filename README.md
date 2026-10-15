@@ -135,3 +135,19 @@ py -3.12 -m pytest tests/ -v   # 58 tests, ~25 s, torch-free guaranteed
   runs on texts whose durations land exactly on .5 rounding boundaries;
   content still matches to ~1e-4. Boundary homographs (e.g. мел/мёл)
   may resolve either valid way for the same reason.
+
+## License
+
+This project is licensed under **CC BY-NC-SA 4.0** (see `LICENSE`).
+In short: non-commercial use only, credit the authors, share alike.
+
+- Original author: the **Silero Team**
+  (https://github.com/snakers4/silero-models).
+- This product is a **derivative work** (Adapted Material) based on
+  Silero TTS v5, used under CC BY-NC-SA 4.0. What was changed:
+  weights transplanted into reimplemented modules and exported to
+  ONNX (acoustic/vocoder/ISTFT), stress/ngram cores exported to ONNX,
+  frontend and tooling rewritten torch-free.
+- Stress/accentor models come from `silero-stress`
+  (https://github.com/snakers4/silero-stress) under the MIT license,
+  © Silero Team.
