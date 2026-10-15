@@ -1,4 +1,4 @@
-"""Export the inverse STFT -> istft_48k.onnx (+ .data).
+"""Export the inverse STFT -> istft_48k.onnx (single file).
 
 Source: RealISTFT (istft_model.py), a real-valued port of the v5
 ISTFT (n_fft=2400, hop=600, win=2400, padding="same"). The inverse DFT is
@@ -23,14 +23,14 @@ Usage (from the repo root, build env installed):
   pip install -r scripts/requirements-export.txt
   python scripts/export_istft.py [--out-dir onnx]
 
-Result: <out-dir>/istft_48k.onnx (+ .onnx.data sidecar).
+Result: <out-dir>/istft_48k.onnx (weights inlined, single file).
 """
 import argparse
 import os
 
 from _common import (DEFAULT_OUT_DIR, Logger, begin, check_and_gate,
-                     ensure_external_data, finish, fixtures_dir, seed_all,
-                     stochastic_probe)
+                     collapse_call, finish, fixtures_dir,
+                     inline_external_data, seed_all, stochastic_probe)
 
 
 def main():
@@ -44,7 +44,7 @@ def main():
     from istft_model import RealISTFT
 
     log = Logger()
-    begin(log, "export_istft.py", "istft_48k.onnx (+ .data)")
+    begin(log, "export_istft.py", "istft_48k.onnx (single file)")
     os.makedirs(a.out_dir, exist_ok=True)
     onnx_path = os.path.join(a.out_dir, "istft_48k.onnx")
 
@@ -80,7 +80,7 @@ def main():
             allok &= ok
             log.log(f"{cname}{tuple(r2.shape)}: max_abs={d:.3e} ok1e-4={ok}")
     if not allok:
-        log.write(os.path.join(a.out_dir, "export_istft_result.txt"))
+        log.write(os.path.join(a.out_dir, "istft_export_result.txt"))
         raise SystemExit("export_istft: RealISTFT fidelity gate FAILED (exit 2)")
 
     real_key = sorted(k for k in cases if k.startswith("real"))[0]
@@ -88,14 +88,14 @@ def main():
     T = torch.export.Dim("T", min=1, max=4096)
     # NOTE: opset 18 (torch 2.14 has no exporter impls below 18; see
     # export_acoustic.py). ORT>=1.17 loads it fine.
-    torch.onnx.export(
+    collapse_call(torch.onnx.export,
         new, (mag, x, y), onnx_path,
         input_names=["mag", "x", "y"], output_names=["audio"],
         dynamic_shapes={"mag": {2: T}, "x": {2: T}, "y": {2: T}},
         opset_version=18, dynamo=True)
     log.log("dynamo export=OK")
 
-    ensure_external_data(onnx_path, log.log)
+    inline_external_data(onnx_path, log.log)
     with torch.no_grad():
         refr = new(mag, x, y).numpy()
     sess, ok = check_and_gate(
@@ -135,8 +135,8 @@ def main():
                                     "y": cy.numpy()}))
     ok &= stochastic_probe(sess, l2_cases, ["audio"], log.log, atol=1e-3)
 
-    finish(log, os.path.join(a.out_dir, "export_istft_result.txt"),
-           [onnx_path, onnx_path + ".data"], "export_istft", ok)
+    finish(log, os.path.join(a.out_dir, "istft_export_result.txt"),
+           [onnx_path], "export_istft", ok)
 
 
 if __name__ == "__main__":

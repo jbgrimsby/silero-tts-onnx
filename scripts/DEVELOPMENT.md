@@ -100,11 +100,13 @@ them breaks export or inference (each was a measured failure, not a guess):
 - **Dynamic axes, batch = 1.** All graphs export `T`/`F`/`K`/`W`/`N`
   dynamic; batch-dependent control flow (punkt loop, padding) is valid
   only for single utterances — the runtime pins batch 1 by construction.
-- **External-data sidecars.** `acoustic` (~30 MB weights) and `istft`
-  (~92 MB bases) exceed the single-file comfort zone; `_common.
-  ensure_external_data` re-saves any output > 8 MB without a sidecar as
-  `.onnx` + `.onnx.data` so the layout always matches what
-  `engine.load_sessions` requires.
+- **Single-file models (no sidecars).** The dynamo exporter
+  externalizes large initializers into `.onnx.data`, but all our models
+  are far below the 2 GB protobuf ceiling — so `_common.
+  inline_external_data` folds weights back into each `.onnx` right
+  after export (single files like Kokoro/Supertonic; proven bit-exact
+  at 0.0 vs the sidecar layout). The runtime loads either layout, but
+  the factory always ships single files.
 - **FP16 rejected.** Measured on CPU: broken loads, destroyed vocoder
   quality, zero speedup. Graphs stay FP32 (see root DEVELOPMENT.md §5).
 

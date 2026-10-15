@@ -27,7 +27,7 @@ import argparse
 import os
 
 from _common import (DEFAULT_OUT_DIR, Logger, begin, check_and_gate,
-                     finish, seed_all, stochastic_probe)
+                     collapse_call, finish, seed_all, stochastic_probe)
 
 
 def main():
@@ -100,7 +100,7 @@ def main():
     log.log(f"ref shapes: {[tuple(t.shape) for t in ref]}")
 
     traced = torch.jit.trace(wrap, (ids, offs), strict=False)
-    torch.onnx.export(
+    collapse_call(torch.onnx.export,
         traced, (ids, offs), onnx_path,
         input_names=["ind", "offsets"],
         output_names=["stress_logits", "yo_logits"],
@@ -137,7 +137,7 @@ def main():
                               "offsets": coffs.numpy()}))
     ok &= stochastic_probe(sess, l2_cases, ["stress", "yo"], log.log,
                            atol=1e-3)
-    finish(log, os.path.join(a.out_dir, "export_ngram_result.txt"),
+    finish(log, os.path.join(a.out_dir, "ngram_export_result.txt"),
            [onnx_path], "export_ngram", ok)
 
 

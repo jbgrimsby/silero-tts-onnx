@@ -146,7 +146,7 @@ def main():
     spec = make_spec(log)
     spec_path = os.path.join(fx, "spec_ref.pt")
     torch.save(spec, spec_path)
-    finish(log, os.path.join(a.out_dir, "make_fixtures_result.txt"),
+    finish(log, os.path.join(a.out_dir, "fixtures_result.txt"),
            [os.path.join(fx, "stress_ref.pt"), spec_path],
            "make_fixtures", True)
 

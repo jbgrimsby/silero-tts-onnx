@@ -10,7 +10,7 @@ import sys
 # force UTF-8 on stdout/stderr at import time. Every export_*.py imports
 # this module first, so the hardening applies to all of them. Displayed
 # glyphs may mojibake on old consoles — our own logs are written to
-# export_*_result.txt in UTF-8 regardless.
+# *_export_result.txt logs in UTF-8 regardless.
 for _s in (sys.stdout, sys.stderr):
     try:
         _s.reconfigure(encoding="utf-8")
@@ -41,6 +41,71 @@ DEFAULT_OUT_DIR = os.path.join(ROOT, "onnx")
 
 if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
+
+
+import contextlib as _contextlib
+import io as _io
+
+
+@_contextlib.contextmanager
+def collapse_torch_progress():
+    """Merge torch.onnx's doubled progress lines into one.
+
+    The exporter prints "<step>..." when a step starts and repeats the
+    whole line with a trailing mark when it ends ("... ✅"). This filter
+    holds back the unfinished line and emits a single "<step>... ✅"
+    line instead. Everything else passes through untouched; use around
+    torch.onnx.export calls.
+    """
+    real = sys.stdout
+    pending = []
+    buf = [""]
+
+    class _Filter(_io.TextIOBase):
+        def write(self, s):
+            buf[0] += s
+            while "\n" in buf[0]:
+                line, buf[0] = buf[0].split("\n", 1)
+                self._emit(line + "\n")
+            return len(s)
+
+        def _emit(self, line):
+            striped = line.rstrip("\n")
+            if striped.startswith("[torch.onnx] ") and striped.endswith("..."):
+                if pending:
+                    real.write(pending.pop() + "\n")
+                pending.append(striped)
+                return
+            if pending and striped.startswith(pending[0]):
+                mark = striped[len(pending[0]):].strip()
+                real.write(pending.pop() + (" " + mark if mark else "") + "\n")
+                return
+            if pending:
+                real.write(pending.pop() + "\n")
+            real.write(line)
+
+        def flush(self):
+            while pending:
+                real.write(pending.pop() + "\n")
+            try:
+                real.flush()
+            except Exception:
+                pass
+
+    proxy = _Filter()
+    sys.stdout = proxy
+    try:
+        yield
+    finally:
+        proxy.flush()
+        sys.stdout = real
+
+
+def collapse_call(fn, *args, **kwargs):
+    """Run fn() with torch-progress collapsing active. One-line wrapper
+    around torch.onnx.export calls (avoids re-indenting them)."""
+    with collapse_torch_progress():
+        return fn(*args, **kwargs)
 
 
 def ort_session(onnx_path):
@@ -114,36 +179,31 @@ def fixtures_dir(out_dir):
     return os.path.join(os.path.abspath(out_dir), "fixtures")
 
 
-def ensure_external_data(onnx_path, log, threshold_mb=8):
-    """Guarantee the runtime-expected layout: .onnx + .onnx.data sidecar.
+def inline_external_data(onnx_path, log):
+    """Normalize to Kokoro-style single-file layout: weights inside .onnx.
 
-    Some torch.onnx paths inline small initializers and externalize large
-    ones; the runtime (engine.load_sessions) *requires* the .data sidecar
-    for acoustic/istft. If the exported file is big but has no sidecar,
-    re-save it with external data. Small models (stress/ngram/vocoder)
-    are left as single files.
+    The dynamo exporter externalizes large initializers into
+    <model>.onnx.data; ORT auto-loads the sidecar, but single-file
+    models are simpler to ship (all ours are far below the 2 GB
+    protobuf ceiling). Replaces the old ensure_external_data (which
+    relied on an onnx.save_model kwarg that does not exist in onnx
+    1.23 and could only ever TypeError). Small single-file models are
+    left byte-identical. Numerics are unaffected (same tensors,
+    re-serialized) — proven by the gates, not assumed.
     """
     import onnx
 
     sidecar = onnx_path + ".data"
-    if os.path.isfile(sidecar):
+    if not os.path.isfile(sidecar):
+        log("single-file layout already (no .data sidecar)")
         return
+    model = onnx.load(onnx_path)  # pulls external tensors into memory
+    onnx.save_model(model, onnx_path)
+    os.remove(sidecar)
     size_mb = os.path.getsize(onnx_path) / 1e6
-    if size_mb < threshold_mb:
-        log(f"single-file layout kept ({size_mb:.1f} MB, no .data needed)")
-        return
-    model = onnx.load(onnx_path)
-    onnx.save_model(model, onnx_path, save_as_external=True,
-                    location=os.path.basename(sidecar))
-    # save_model with an absolute path keeps `location` as given; make the
-    # sidecar sit next to the model under its plain basename.
-    got = sidecar
-    if not os.path.isfile(got):  # exporter wrote it next to cwd: relocate
-        alt = os.path.join(os.getcwd(), os.path.basename(sidecar))
-        if os.path.isfile(alt):
-            os.replace(alt, got)
-    log(f"externalized weights -> {os.path.basename(got)} "
-        f"({os.path.getsize(got) / 1e6:.1f} MB)")
+    log(f"inlined weights, removed {os.path.basename(sidecar)}: "
+        f"{os.path.basename(onnx_path)} is now a single "
+        f"{size_mb:.1f} MB file")
 
 
 def check_and_gate(onnx_path, feeds, refs, names, log, atol):

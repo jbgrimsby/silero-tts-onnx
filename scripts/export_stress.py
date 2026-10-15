@@ -29,7 +29,8 @@ import argparse
 import os
 
 from _common import (DEFAULT_OUT_DIR, Logger, begin, check_and_gate,
-                     finish, fixtures_dir, seed_all, stochastic_probe)
+                     collapse_call, finish, fixtures_dir, seed_all,
+                     stochastic_probe)
 
 
 def main():
@@ -62,7 +63,7 @@ def main():
 
     # NOTE: classic path (scripted input) + opset 17: the proven combination
     # (vocoder exports the same way). The opset-18 requirement is dynamo-only.
-    torch.onnx.export(
+    collapse_call(torch.onnx.export,
         m, (ids, st, en), onnx_path,
         input_names=["input_ids", "homo_start_ids", "homo_end_ids"],
         output_names=["logits"],
@@ -128,7 +129,7 @@ def main():
                                     "homo_end_ids": cen.numpy()}))
     ok &= stochastic_probe(sess, l2_cases, ["logits"], log.log, atol=1e-3)
 
-    finish(log, os.path.join(a.out_dir, "export_stress_result.txt"),
+    finish(log, os.path.join(a.out_dir, "stress_export_result.txt"),
            [onnx_path], "export_stress", ok)
 
 

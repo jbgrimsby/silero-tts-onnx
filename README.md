@@ -41,9 +41,11 @@ Build details live in `scripts/README.md`, internals in `DEVELOPMENT.md`.
 
 ## Features
 
-- 5 voices: `aidar baya kseniya eugene xenia`, 48 kHz, CPU.
+- 5 voices: `aidar`, `baya`, `kseniya`, `eugene`, `xenia`, 48 kHz, CPU.
 - Runtime deps only: `onnxruntime`, `numpy`, `soundfile`, `num2words`.
-- Fast: RTF ~21x on CPU (4.15 s of audio in ~0.20 s wall time).
+- Fast: RTF ~25x on CPU (4.15 s of audio in ~0.18 s wall time) — on par
+  with torch CPU on the same texts (31x/28x and 31x/23x measured), while
+  dropping the ~2 GB torch dependency entirely.
 - Smart frontend: abbreviations, numbers (incl. negative/fractional),
   automated stress, yo-letter and homograph disambiguation.
 - Measured quality vs the original pipeline: max abs error ~1e-4 on waveforms
@@ -72,17 +74,26 @@ Python 3.10–3.12.
 
 ## Models
 
-Inference needs a directory with five ONNX models (plus `.data` sidecars
-where noted). Pass it explicitly or via the `SILERO_ONNX_MODELS` variable:
+Inference needs a directory with five self-contained ONNX models
+(single files, weights inside — no `.data` sidecars):
 
-- `acoustic_v5_ru.onnx` + `.onnx.data`
-- `vocoder_v5_ru.onnx`
-- `istft_48k.onnx` + `.onnx.data`
-- `silero_stress.onnx` (homographs)
-- `ngram_core.onnx` (plain-word stress)
+- `acoustic_v5_ru.onnx` (~31 MB) — text tokens + speaker + prosody
+  rates → mel-spectrogram (192 dims) + per-token durations;
+  the voice itself lives here
+- `vocoder_v5_ru.onnx` (~58 MB) — mel → split spectral parts
+  (`mag`, `x`, `y`; 1201 dims), no complex numbers on the boundary
+- `istft_48k.onnx` (~92 MB) — (`mag`, `x`, `y`) → waveform via a
+  real-valued inverse STFT (float64 IDFT core inside)
+- `silero_stress.onnx` (~117 MB, homosolver) — picks the right variant
+  of homographs (`замок`: castle/lock) with a BERT-tiny over the
+  sentence context
+- `ngram_core.onnx` (~8 MB, plain-word stress) — EmbeddingBag over
+  character n-grams + two MLP heads: where the stress falls and
+  where `е` becomes `ё`
 
 These are produced once by the export pipeline (see `DEVELOPMENT.md`);
-they are data, not code, and are not part of the wheel.
+they are data, not code, and are not part of the wheel. Pass the
+directory explicitly or via the `SILERO_ONNX_MODELS` variable.
 
 ## Usage
 
@@ -109,15 +120,26 @@ silero-onnx --examples
 
 ## SSML (`--ssml` / `ssml=True`)
 
-`<speak>` root is mandatory. Supported: `<break time="500ms"/>`
-(or `strength="weak"`…`"x-strong"`), `<prosody rate="fast"|"150%"
-pitch="high"|"+12%"|>`, `<p>`/`<s>` (imply breaks). Prosody needs one
-acoustic pass; `<break>` pauses need a second pass with forced
-durations (exact frames, e.g. 500 ms → 40) plus mel silencing — no
-model re-export was needed. Limits, all measured: fractional seconds
-(`1.5s`) fail like upstream; breaks on commas skip upstream's
-support re-prediction (pause itself stays exact); user `+` stress
-marks keep working inside SSML.
+`<speak>` root is mandatory — without it the input is rejected with a
+one-line error (no traceback). Plain text without `--ssml` never parses
+tags: `<break/>` would be vocalized as words.
+
+| Tag | What it does | Example |
+|---|---|---|
+| `<break time="500ms"/>` / `<break time="2s"/>` | exact pause (ms, whole seconds) | `…пауза. <break time='500ms'/> Вот…` |
+| `<break strength="…"/>` | `x-weak` 25 ms … `x-strong` 1000 ms | `<break strength='weak'/>` |
+| `<prosody rate="…">` | `x-slow` 0.5 … `x-fast` 1.5, or `150%` | `<prosody rate='fast'>Скорее!</prosody>` |
+| `<prosody pitch="…">` | `x-low` 0.75 … `x-high` 1.25, `robot` 0, or `+12%`/`-10%` | `<prosody pitch='high'>Высоко.</prosody>` |
+| `<p>` / `<s>` | paragraph/sentence breaks (`x-strong`/`strong`) | `<s>Первое.</s><s>Второе.</s>` |
+
+How it works: prosody becomes per-token rate/pitch arrays (one acoustic
+pass, no model changes); `<break>` pauses force exact durations
+(500 ms → 40 frames) in a second pass plus mel silencing. User `+`
+stress marks keep working inside SSML.
+
+Limits, all measured: fractional seconds (`1.5s`) fail like upstream;
+breaks on commas skip upstream's support re-prediction (the pause
+itself stays exact); `silero-onnx --examples` lists runnable samples.
 
 ## Tests
 

@@ -41,7 +41,7 @@ expected sizes, gate policy) are below.
 | `export_ngram.py` | `ngram_core.onnx` | `silero_stress` EmbeddingBag + 2 MLP heads, `jit.trace` + classic exporter, opset 17 |
 | `export_all.py` | all five + fixtures, in order | orchestrator: make_fixtures first, then the five above; stops at first failure |
 | `make_fixtures.py` | `onnx/fixtures/{stress_ref,spec_ref}.pt` | deterministic build inputs: 7 homo windows (vendored tokenizer, torch-free) + real spectrum (torch pipeline, fixed text) |
-| `check_models.py` | — | integrity check of `onnx/` (names, sidecars, ORT load, multi-shape robustness, smoke synth) |
+| `check_models.py` | — | integrity check of `onnx/` (names, ORT load, multi-shape robustness, smoke synth) |
 | `check_parity.py` | — | end-to-end torch-chain vs ONNX-chain parity (build env only; the `tests/`-forbidden twin of the L1 gates) |
 | `_common.py` | — | shared repo-root/out-dir resolution, checker+ORT gates, `.data` externalization |
 | `acoustic.py`, `build_acoustic.py`, `encoder.py`, `decoder.py`, `fftblock.py`, `slowmha.py`, `predictors.py`, `istft_model.py`, `layernorm.py` | — | clean torch ports vendored with the exporters (mirrors of upstream modules; `istft_model.py` is `istft.py` renamed to not clash with `export_istft.py`; `layernorm.py` is an export-safe `LayerNorm` spelling, see `scripts/DEVELOPMENT.md` §2) |
@@ -97,15 +97,15 @@ python scripts/export_all.py --out-dir D:\models\silero
 set SILERO_ONNX_MODELS=D:\models\silero
 ```
 
-Expected result in `onnx/` (~290 MB total):
+Expected result in `onnx/` (~290 MB total, single files, no sidecars):
 
 ```
-acoustic_v5_ru.onnx (+ .onnx.data)   ~0.9 + ~30 MB
+acoustic_v5_ru.onnx                  ~31 MB
 vocoder_v5_ru.onnx                   ~58 MB
-istft_48k.onnx (+ .onnx.data)        ~0.0 + ~92 MB
+istft_48k.onnx                       ~92 MB
 silero_stress.onnx                   ~117 MB
 ngram_core.onnx                      ~8 MB
-export_*_result.txt                  per-script gate logs
+export_*_result.txt                  per-step gate logs
 ```
 
 Notes:

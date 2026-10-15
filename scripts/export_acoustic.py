@@ -1,4 +1,4 @@
-"""Export the acoustic model -> acoustic_v5_ru.onnx (+ .data).
+"""Export the acoustic model -> acoustic_v5_ru.onnx (single file).
 
 Source: snakers4/silero-models (ru/v5_ru) Tacotron side, transplanted into
 the clean port (build_acoustic.build_acoustic, 224 tensors) and exported
@@ -25,13 +25,13 @@ Usage (from the repo root, build env installed):
   pip install -r scripts/requirements-export.txt
   python scripts/export_acoustic.py [--out-dir onnx]
 
-Result: <out-dir>/acoustic_v5_ru.onnx (+ .onnx.data sidecar).
+Result: <out-dir>/acoustic_v5_ru.onnx (weights inlined, single file).
 """
 import argparse
 import os
 
 from _common import (DEFAULT_OUT_DIR, ROOT, Logger, begin, check_and_gate,
-                     ensure_external_data, finish, seed_all,
+                     collapse_call, finish, inline_external_data, seed_all,
                      stochastic_probe)
 
 
@@ -47,7 +47,7 @@ def main():
     from build_acoustic import build_acoustic
 
     log = Logger()
-    begin(log, "export_acoustic.py", "acoustic_v5_ru.onnx (+ .data)")
+    begin(log, "export_acoustic.py", "acoustic_v5_ru.onnx (single file)")
     os.makedirs(a.out_dir, exist_ok=True)
     onnx_path = os.path.join(a.out_dir, "acoustic_v5_ru.onnx")
 
@@ -92,7 +92,7 @@ def main():
     # NOTE: opset 18 is requested, not 17: torch 2.14 only ships exporter
     # implementations for 18, and the 18->17 version-converter pass fails
     # on this graph (kept at 18 anyway). ORT>=1.17 loads opset 18 fine.
-    torch.onnx.export(
+    collapse_call(torch.onnx.export,
         new, (seq, sp_ids, dr.clone(), pc.clone()), onnx_path,
         input_names=["sequence", "speaker_ids", "durs_rate", "pitch_coefs"],
         output_names=["mel", "dur"],
@@ -104,7 +104,7 @@ def main():
         opset_version=18, dynamo=True)
     log.log("dynamo export=OK")
 
-    ensure_external_data(onnx_path, log.log)
+    inline_external_data(onnx_path, log.log)
     sess, ok = check_and_gate(
         onnx_path,
         {"sequence": seq.numpy(), "speaker_ids": sp_ids.numpy(),
@@ -158,8 +158,8 @@ def main():
     ok &= stochastic_probe(sess, l2_cases, ["mel", "dur"], log.log,
                            atol=3e-3)
 
-    finish(log, os.path.join(a.out_dir, "export_acoustic_result.txt"),
-           [onnx_path, onnx_path + ".data"], "export_acoustic", ok)
+    finish(log, os.path.join(a.out_dir, "acoustic_export_result.txt"),
+           [onnx_path], "export_acoustic", ok)
 
 
 if __name__ == "__main__":

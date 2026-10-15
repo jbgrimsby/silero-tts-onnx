@@ -104,9 +104,9 @@ silero/                          # repo root
 │   ├── requirements-export.txt  # build-env installer (extra + CPU torch index)
 │   ├── export_all.py            # orchestrator: make_fixtures, then the 5 exporters
 │   ├── make_fixtures.py         # [gen] onnx/fixtures/*.pt + make_fixtures_result.txt
-│   ├── export_acoustic.py       # acoustic transplant+export | [gen] acoustic_v5_ru.onnx (+ .data)
+│   ├── export_acoustic.py       # acoustic transplant+export | [gen] acoustic_v5_ru.onnx, ~31 MB
 │   ├── export_vocoder.py        # vocoder wrap+export        | [gen] vocoder_v5_ru.onnx
-│   ├── export_istft.py          # real-valued ISTFT export   | [gen] istft_48k.onnx (+ .data)
+│   ├── export_istft.py          # real-valued ISTFT export   | [gen] istft_48k.onnx, ~92 MB
 │   ├── export_stress.py         # homosolver BERT-tiny export | [gen] silero_stress.onnx
 │   ├── export_ngram.py          # EmbeddingBag+heads export   | [gen] ngram_core.onnx
 │   ├── check_models.py          # deployment check (torch-free, generates nothing)
@@ -121,22 +121,20 @@ silero/                          # repo root
 │   ├── test_extended_robustness.py  # edges/threads/memory/integrity/RTF
 │   └── test_ssml.py             # SSML parser contract + prosody/break behavior + CLI
 ├── onnx/ [gen]                  # local build output, git-ignored, never committed
-│   ├── acoustic_v5_ru.onnx [gen]  # ~1.2 MB graph: ids/spk/rates/coefs -> mel + durations
-│   ├── acoustic_v5_ru.onnx.data [gen]  # ~30 MB externalized acoustic weights
+│   ├── acoustic_v5_ru.onnx [gen]  # ~31 MB single file: ids/spk/rates/coefs -> mel + durations
 │   ├── vocoder_v5_ru.onnx [gen]   # ~58 MB: mel -> mag/x/y spectral parts
-│   ├── istft_48k.onnx [gen]       # ~25 KB graph: (mag,x,y) -> waveform (float64 IDFT core)
-│   ├── istft_48k.onnx.data [gen]  # ~92 MB IDFT cos/sin bases + window
+│   ├── istft_48k.onnx [gen]       # ~92 MB single file: (mag,x,y) -> waveform (float64 IDFT core)
 │   ├── silero_stress.onnx [gen]   # ~117 MB homosolver BERT-tiny (input_ids + spans -> logits)
 │   ├── ngram_core.onnx [gen]      # ~8 MB EmbeddingBag + stress/yo heads
 │   ├── fixtures/ [gen]            # generated references (make_fixtures.py, seed 42)
 │   │   ├── stress_ref.pt [gen]    # 7 real homograph windows for export_stress
 │   │   └── spec_ref.pt [gen]      # real spectrum for export_istft gates
-│   ├── make_fixtures_result.txt [gen]   # fixture generation log
-│   ├── export_acoustic_result.txt [gen] # acoustic L1/L2 gate log
-│   ├── export_vocoder_result.txt [gen]   # vocoder L1/L2 gate log
-│   ├── export_istft_result.txt [gen]     # istft L1/L2 gate log
-│   ├── export_stress_result.txt [gen]    # stress L1/L2 gate log
-│   └── export_ngram_result.txt [gen]     # ngram L1/L2 gate log
+│   ├── fixtures_result.txt [gen]        # fixture generation log
+│   ├── acoustic_export_result.txt [gen] # acoustic L1/L2 gate log
+│   ├── vocoder_export_result.txt [gen]     # vocoder L1/L2 gate log
+│   ├── istft_export_result.txt [gen]         # istft L1/L2 gate log
+│   ├── stress_export_result.txt [gen]       # stress L1/L2 gate log
+│   └── ngram_export_result.txt [gen]         # ngram L1/L2 gate log
 ├── pyproject.toml               # runtime deps (torch-free) + export/dev extras
 ├── README.md                    # user quickstart (zero → audio)
 └── DEVELOPMENT.md               # this file

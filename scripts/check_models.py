@@ -1,11 +1,11 @@
 """Integrity check for a built model directory (default: <repo>/onnx/).
 
 Verifies, without torch:
-  1. all five .onnx files exist (+ .data sidecars for acoustic/istft),
-  2. every file loads in onnxruntime (CPU) with expected I/O names,
-  3. multi-shape ORT robustness: seeded numpy inputs of varying T/B/W
+  1. all five single-file .onnx models exist and load in onnxruntime
+     (CPU) with expected I/O names,
+  2. multi-shape ORT robustness: seeded numpy inputs of varying T/B/W
      run clean (finite outputs, no hangs) — crash-guard, no torch ref,
-  4. a short end-to-end synthesis works through SileroTTS.
+  3. a short end-to-end synthesis works through SileroTTS.
 
 Deployment utility: run once after scripts/export_all.py (or whenever
 onnx/ is refreshed). NOT part of the runtime; never called by tests.
@@ -24,13 +24,13 @@ if ROOT not in sys.path:
 
 EXPECTED = {
     "acoustic_v5_ru.onnx": (["sequence", "speaker_ids", "durs_rate",
-                             "pitch_coefs"], ["mel", "dur"], True),
-    "vocoder_v5_ru.onnx": (["mel"], ["mag", "x", "y"], False),
-    "istft_48k.onnx": (["mag", "x", "y"], ["audio"], True),
+                             "pitch_coefs"], ["mel", "dur"]),
+    "vocoder_v5_ru.onnx": (["mel"], ["mag", "x", "y"]),
+    "istft_48k.onnx": (["mag", "x", "y"], ["audio"]),
     "silero_stress.onnx": (["input_ids", "homo_start_ids",
-                            "homo_end_ids"], ["logits"], False),
+                            "homo_end_ids"], ["logits"]),
     "ngram_core.onnx": (["ind", "offsets"],
-                        ["stress_logits", "yo_logits"], False),
+                        ["stress_logits", "yo_logits"]),
 }
 
 ROBUST_SEED = 42
@@ -117,13 +117,10 @@ def main():
     failures = []
     sessions = {}
     for name, spec in EXPECTED.items():
-        want_in, want_out, need_data = spec
+        want_in, want_out = spec
         base = os.path.join(a.models, name)
         if not os.path.isfile(base):
             failures.append("missing " + base)
-            continue
-        if need_data and not os.path.isfile(base + ".data"):
-            failures.append("missing sidecar " + base + ".data")
             continue
         try:
             sess = ort.InferenceSession(

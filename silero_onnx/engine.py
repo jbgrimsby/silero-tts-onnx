@@ -21,7 +21,6 @@ assert "torch" not in sys.modules, "torch must never be imported here"
 ACOUSTIC = "acoustic_v5_ru.onnx"
 VOCODER = "vocoder_v5_ru.onnx"
 ISTFT = "istft_48k.onnx"
-DATA_SUFFIX = ".data"
 SAMPLE_RATE = 48000
 
 
@@ -54,7 +53,7 @@ MISSING_MODELS_MSG = (
     "the torch build env (python scripts/export_all.py, see "
     "scripts/README.md) into <repo>/onnx/, or point SILERO_ONNX_MODELS "
     "at a directory holding acoustic_v5_ru.onnx + vocoder_v5_ru.onnx + "
-    "istft_48k.onnx (+ .data sidecars) + silero_stress.onnx + "
+    "istft_48k.onnx + silero_stress.onnx + "
     "ngram_core.onnx")
 
 
@@ -70,19 +69,19 @@ def load_sessions(models_dir):
     so.log_severity_level = 3  # ERROR only: hide benign optimizer chatter
     # (e.g. ngram EmbeddingBag subgraph renames); load errors still raise.
 
-    def sess(name, need_data):
+    def sess(name):
         base = os.path.join(models_dir, name)
         if not os.path.isfile(base):
             raise SystemExit(f"silero-onnx: error: missing model file {base}")
-        if need_data and not os.path.isfile(base + DATA_SUFFIX):
-            raise SystemExit(f"silero-onnx: error: missing weights sidecar {base}.data")
         try:
             return ort.InferenceSession(base, sess_options=so,
                                         providers=["CPUExecutionProvider"])
         except Exception as e:
+            # A broken layout (e.g. a stale .onnx referencing a deleted
+            # .onnx.data sidecar) surfaces here from ORT itself.
             raise SystemExit(f"silero-onnx: error: cannot load {base}: {e}")
 
-    return (sess(ACOUSTIC, True), sess(VOCODER, False), sess(ISTFT, True))
+    return (sess(ACOUSTIC), sess(VOCODER), sess(ISTFT))
 
 
 class SileroTTS:
@@ -362,7 +361,7 @@ def main(argv=None):
     ap.add_argument("--speaker", metavar="SPEAKER_NAME", default="xenia",
                       help="voice name (see --speakers)")
     ap.add_argument("--models", metavar="MODELS_DIR", default=None,
-                      help="dir with the 5 .onnx files (+ .data sidecars)")
+                      help="dir with the 5 self-contained .onnx model files")
     ap.add_argument("--speakers", action="store_true", help="list voices and exit")
     ap.add_argument("--ssml", action="store_true",
                       help="parse text as SSML (<speak>, break/prosody/p/s)")

@@ -22,7 +22,7 @@ import argparse
 import os
 
 from _common import (DEFAULT_OUT_DIR, Logger, begin, check_and_gate,
-                     finish, seed_all, stochastic_probe)
+                     collapse_call, finish, seed_all, stochastic_probe)
 
 
 def main():
@@ -85,13 +85,12 @@ def main():
     log.log(f"ref mel {tuple(mel.shape)} from clean acoustic (deterministic)")
 
     traced = torch.jit.trace(VocWrap(voc), (mel,), strict=False)
-    torch.onnx.export(
+    collapse_call(torch.onnx.export,
         traced, (mel,), onnx_path,
         input_names=["mel"], output_names=["mag", "x", "y"],
         dynamic_axes={"mel": {2: "T"}, "mag": {2: "T"},
                       "x": {2: "T"}, "y": {2: "T"}},
         opset_version=17, dynamo=False)
-    log.log("export=OK")
 
     # NOTE: gate is 1e-3, not 1e-4. Measured on torch 2.14 / ORT 1.31:
     # real mel 7.7e-04, seeded randn 2.3e-04..5.6e-04 on mag — the deep
@@ -114,7 +113,7 @@ def main():
             l2_cases.append(([t.numpy() for t in cr], {"mel": cm.numpy()}))
     ok &= stochastic_probe(sess, l2_cases, ["mag", "x", "y"], log.log,
                            atol=3e-3)
-    finish(log, os.path.join(a.out_dir, "export_vocoder_result.txt"),
+    finish(log, os.path.join(a.out_dir, "vocoder_export_result.txt"),
            [onnx_path], "export_vocoder", ok)
 
 
