@@ -1,0 +1,130 @@
+"""End-to-end parity: torch chain vs ONNX chain (build env only).
+
+Compares, on fixed texts, the torch reference pipeline
+(AcousticClean -> VocWrap -> RealISTFT, all torch/no_grad) against the
+exported assets (acoustic -> vocoder -> istft .onnx chained the same way):
+mel (atol 1e-3), mag (atol 5e-3), final waveform (atol 5e-4; measured
+9.4e-05..1.7e-04). Non-zero exit on breach.
+
+Why here and not in tests/: the suite is torch-free by contract
+(first/last sys.modules assertions) and must run without torch or
+network. The per-component halves of this check already run as L1
+gates inside each export_*.py; this script is their end-to-end twin,
+runnable with one command in the build env:
+
+  python scripts/check_parity.py [--models onnx]
+"""
+import argparse
+import os
+import sys
+
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(SCRIPTS_DIR)
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+TEXTS = ["Привет! Меня зовут Ксения.",
+         "Меня зовут Лева Королев. Я уже готов открыть все ваши замки!"]
+
+# NOTE: mag bar is 5e-3, not 3e-3: conv-stack kernel noise grows mildly
+# with utterance length (measured 1.9e-03 on T32, 3.8e-03 on T73), while
+# the waveform it produces stays <= 2e-4. The audio gate is the
+# load-bearing one; mag/mels are diagnostic.
+GATES = {"mel": 1e-3, "mag": 5e-3, "audio": 5e-4}
+
+
+def main():
+    ap = argparse.ArgumentParser(description="torch-vs-ONNX e2e parity")
+    ap.add_argument("--models", default=os.path.join(ROOT, "onnx"))
+    a = ap.parse_args()
+
+    import numpy as np
+    import torch
+
+    from build_acoustic import build_acoustic
+    from istft_model import RealISTFT
+
+    torch._C._jit_set_profiling_mode(False)
+    model, _ = torch.hub.load(repo_or_dir="snakers4/silero-models",
+                               model="silero_tts", language="ru",
+                               speaker="v5_ru", trust_repo=True)
+    model.to("cpu")
+    part = model.packages[0]
+    jit_m = part.models[0]
+
+    def get(root, *names):
+        m = root
+        for n in names:
+            m = dict(m.named_children())[n]
+        return m
+
+    voc = get(jit_m, "vocoder")
+    new = build_acoustic(jit_m, [])
+    istft = RealISTFT().eval()
+
+    class VocWrap(torch.nn.Module):
+        def __init__(self, m):
+            super().__init__()
+            self.m = m
+
+        def forward(self, mel):
+            mag, x, y = self.m(mel, 48000, 0.0, True)
+            return mag, x, y
+
+    vw = VocWrap(voc).eval()
+
+    import onnxruntime as ort
+    kw = {"providers": ["CPUExecutionProvider"]}
+    sa = ort.InferenceSession(os.path.join(a.models, "acoustic_v5_ru.onnx"),
+                              **kw)
+    sv = ort.InferenceSession(os.path.join(a.models, "vocoder_v5_ru.onnx"),
+                              **kw)
+    si = ort.InferenceSession(os.path.join(a.models, "istft_48k.onnx"), **kw)
+
+    ok = True
+    for text in TEXTS:
+        spk_ids, _mid = part.get_speakers("xenia")
+        sents, _, blens, rates, pitches, sp_ids = \
+            part.prepare_tts_model_input(text, ssml=False,
+                                         speaker_ids=spk_ids)
+        seq, _, dr, pc = part.merge_batch_model(
+            sents, blens, rates, pitches, put_accent=True, put_yo=True)
+        with torch.no_grad():
+            t_mel, _d = new(seq, sp_ids, dr.clone(), pc.clone())
+            t_mag, t_x, t_y = vw(t_mel)
+            t_audio = istft(t_mag, t_x, t_y).numpy()
+        o_mel, _d = sa.run(None, {"sequence": seq.numpy(),
+                                  "speaker_ids": sp_ids.numpy(),
+                                  "durs_rate": dr.numpy(),
+                                  "pitch_coefs": pc.numpy()})
+        o_mag, o_x, o_y = sv.run(None, {"mel": o_mel.astype(np.float32)})
+        o_audio = si.run(None, {"mag": o_mag.astype(np.float32),
+                                "x": o_x.astype(np.float32),
+                                "y": o_y.astype(np.float32)})[0]
+        morate = all(r.shape == o.shape
+                     for _, r, o in (("mel", t_mel.numpy(), o_mel),
+                                     ("mag", t_mag.numpy(), o_mag),
+                                     ("audio", t_audio, o_audio)))
+        for nm, r, o in (("mel", t_mel.numpy(), o_mel),
+                         ("mag", t_mag.numpy(), o_mag),
+                         ("audio", t_audio, o_audio)):
+            if r.shape != o.shape:
+                print(f"{text[:20]!r} {nm}: SHAPE_MISMATCH "
+                      f"torch{r.shape} ort{o.shape} FAIL", flush=True)
+                ok = False
+                continue
+            d = float(np.abs(r - o).max())
+            passed = bool(np.allclose(r, o, rtol=0, atol=GATES[nm]))
+            print(f"{text[:20]!r} {nm}: max_abs={d:.3e} "
+                  f"gate={GATES[nm]} {'PASS' if passed else 'FAIL'}",
+                  flush=True)
+            ok &= passed
+    if not ok:
+        raise SystemExit("check_parity: waveform parity gate FAILED")
+    print("check_parity: torch-vs-ONNX end-to-end PASS", flush=True)
+
+
+if __name__ == "__main__":
+    main()

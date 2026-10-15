@@ -1,0 +1,1 @@
+{"vowels": "аоуыэиеяёю", "window_size": 300, "tag_pattern": "(?=.*[а-яё])[а-яё+]+", "tag_flags": 34}

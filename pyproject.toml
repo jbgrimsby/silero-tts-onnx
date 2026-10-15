@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "silero-onnx-tts"
+version = "0.1.0"
+description = "Silero TTS v5 RU inference through ONNX Runtime (48 kHz, CPU)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    # NOTE: torch is intentionally NOT required at runtime: inference is
+    # 100% torch-free (frontend data + 5 ONNX sessions). Torch (+omegaconf)
+    # is needed only to (re)generate models/data, see README.
+    "onnxruntime>=1.17",   # acoustic + vocoder + istft + stress inference
+    "numpy>=1.24",
+    "soundfile>=0.12",
+    "num2words>=0.5",      # number expansion in the text frontend
+]
+
+[project.optional-dependencies]
+# Build env for scripts/ (one-off ONNX export, torch allowed). Single
+# source of truth for versions; install in a SEPARATE venv so the
+# runtime never sees torch:
+#   pip install -r scripts/requirements-export.txt   (adds CPU torch index)
+# or equivalently:  pip install -e ".[export]"
+# Verified stack: torch 2.14.1, onnx 1.23.2, onnxscript 0.7.2,
+# onnxruntime 1.31.0, numpy 2.5.4, silero-stress 1.5, scipy 1.18.1.
+export = [
+    "torch>=2.2",  # model sources (torch.hub/silero_stress) + torch.onnx
+    "onnx>=1.15",  # graph construction + onnx.checker gates
+    "onnxscript",  # dynamo exporter backend
+    "onnxruntime>=1.17",  # ORT-vs-torch fidelity gates
+    "numpy>=1.24",
+    "silero-stress",  # homosolver BERT-tiny + ngram core sources
+    "omegaconf",  # transitive need of torch.hub snakers4 load
+    "scipy",  # transitive need of torch.package'd v5 TTS internals
+    "onnxconverter-common",  # optional FP16 experiments (see README)
+]
+dev = [
+    "pytest>=7",  # test suite: py -m pytest tests/ -v
+]
+
+[project.scripts]
+silero-onnx = "silero_onnx.engine:main"
+
+[tool.setuptools.packages.find]
+include = ["silero_onnx*"]
+
+# Static runtime data MUST ship inside the wheel, otherwise production
+# installs fail with FileNotFoundError. setuptools includes package-data
+# matched below; the generated tokdir/ cache is deliberately excluded
+# (rebuilt at runtime under ~/.cache/silero_onnx, see homograph_solver).
+[tool.setuptools.package-data]
+silero_onnx = ["data/*.json"]

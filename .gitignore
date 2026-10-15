@@ -1,0 +1,15 @@
+# Binaries & build outputs: models are built locally via scripts/
+# (python scripts/export_all.py) and never committed.
+onnx/
+# Local virtualenvs and generated audio.
+.venv-build/
+.venv/
+*.wav
+# Python / test caches (regenerable).
+__pycache__/
+*.pyc
+.pytest_cache/
+# Packaging outputs (regenerable via pip install -e . / python -m build).
+build/
+dist/
+*.egg-info/

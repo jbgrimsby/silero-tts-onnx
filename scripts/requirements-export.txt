@@ -1,0 +1,14 @@
+# Build-environment installer for scripts/ (one-off ONNX export).
+#
+# Versions live in ONE place: [project.optional-dependencies] "export" in
+# pyproject.toml (PEP 621 standard). This file only adds installer-level
+# config that pyproject cannot express (CPU-only torch index) and points
+# pip at that extra. Install in a SEPARATE venv, run from the repo root
+# (relative -e path resolves against CWD, not this file):
+#   py -3.12 -m venv .venv-build
+#   .venv-build\Scripts\activate        (source .venv-build/bin/activate)
+#   pip install -r scripts/requirements-export.txt
+# Equivalent (default PyPI index, may pull a CUDA torch wheel):
+#   pip install -e ".[export]"
+--extra-index-url https://download.pytorch.org/whl/cpu
+-e .[export]
