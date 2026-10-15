@@ -239,3 +239,78 @@ class TorchFreeFrontend:
                 "speaker_ids": np.array([self.speakers[speaker]], dtype=np.int64),
                 "durs_rate": np.ones((1, n), dtype=np.float32),
                 "pitch_coefs": np.ones((1, n), dtype=np.float32)}
+
+    def prepare_ssml(self, ssml_text, speaker="xenia"):
+        """SSML -> (feeds, breaks): per-token rate/pitch arrays plus
+        [(token_pos, frames)] pause plans for the engine two-pass path.
+
+        Segments are normalized with OUR normalize(), jointly stressed
+        (cross-segment context, mirroring upstream word-count re-split),
+        then re-attributed to segments by word count. Unknown chars are
+        filtered exactly like tokenize(errors="filter"), so the emitted
+        rate/pitch arrays always match the id sequence 1:1 (sos takes the
+        first segment's values, eos the last one's).
+        """
+        import numpy as np
+        from .ssml import ms_to_frames, parse_ssml
+        if speaker not in self.speakers:
+            raise ValueError(f"unknown speaker '{speaker}', want one of "
+                             f"{sorted(self.speakers)}")
+        segs = parse_ssml(ssml_text)
+        plains = [normalize(s["text"]) for s in segs]
+        kept = []  # (text, rate, pitch, break_ms); empties merge backward
+        leading_break = None
+        for i, s in enumerate(segs):
+            if not plains[i]:
+                if s["break_ms"] is not None:
+                    if kept:
+                        t, r, p, b = kept[-1]
+                        kept[-1] = (t, r, p, s["break_ms"] if b is None
+                                    else max(b, s["break_ms"]))
+                    elif leading_break is None:
+                        leading_break = s["break_ms"]
+                continue
+            kept.append((plains[i], s["rate"], s["pitch"], s["break_ms"]))
+        if not kept:
+            raise ValueError("silero-onnx: error: SSML holds no speakable text")
+        counts = [len(t.split(" ")) for t, _, _, _ in kept]
+        words = self.stress(" ".join(t for t, _, _, _ in kept)).split(" ")
+        if sum(counts) != len(words):
+            raise ValueError(
+                "silero-onnx: error: stress changed the SSML word arity "
+                f"({sum(counts)} -> {len(words)}): cannot attribute prosody")
+        table = self.symbol_to_id
+        ids, rates, pitches = [table["|"]], [kept[0][1]], [kept[0][2]]
+        breaks = []
+        if leading_break is not None:
+            breaks.append((0, ms_to_frames(leading_break)))
+        off = 0
+        for si, (t, rate, pitch, brk) in enumerate(kept):
+            chunk = " ".join(words[off:off + counts[si]])
+            off += counts[si]
+            for ch in chunk:
+                m = ch.lower().replace("—", "–")
+                if m in table:
+                    ids.append(table[m])
+                    rates.append(rate)
+                    pitches.append(pitch)
+                # else: filtered — no rate emitted (mirrors errors="filter")
+            if brk is not None:
+                # boundary = last CONTENT token (upstream text_len points
+                # past the segment chars, i.e. at its last phone — the join
+                # space belongs to the gap acoustically, not to the pause).
+                breaks.append((len(ids) - 1, ms_to_frames(brk)))
+            if si < len(kept) - 1:
+                ids.append(table[" "])
+                rates.append(rate)
+                pitches.append(pitch)
+        ids.append(table["~"])
+        rates.append(kept[-1][1])
+        pitches.append(kept[-1][2])
+        n = len(ids)
+        return ({"sequence": np.array([ids], dtype=np.int64),
+                 "speaker_ids": np.array([self.speakers[speaker]],
+                                         dtype=np.int64),
+                 "durs_rate": np.array([rates], dtype=np.float32),
+                 "pitch_coefs": np.array([pitches], dtype=np.float32)},
+                breaks)

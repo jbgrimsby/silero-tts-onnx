@@ -63,14 +63,20 @@ the models (one-off export, outside this repo).
 
 - `__init__.py` — public facade only: `SileroTTS`, `main`.
 - `engine.py` — `SileroTTS(model_dir, data_dir)`, ORT session loading with
-  missing-file diagnostics, `synthesize()` / `synthesize_to_file()`, CLI.
+  missing-file diagnostics, `synthesize()` / `synthesize_to_file()` (both
+  with `ssml=` flag: prosody via per-token rate/pitch arrays, `<break>`
+  via two-pass duration forcing + numpy fx_pauses port), CLI.
   Model discovery: explicit `model_dir` > `SILERO_ONNX_MODELS` >
   `<repo>/onnx`; no other fallbacks (missing models fail loudly).
   Production must pass `model_dir` explicitly.
 - `frontend.py` — `normalize()` (whitespace/abbr/numbers), `tokenize()` (+
   `errors="raise"|"filter"`), baked symbol/speaker tables, `TorchFreeFrontend`
-  assembling numpy feeds. Unknown chars are *filtered* (matches the original
-  pipeline's silent dropping, unlike the strict default of `tokenize()`).
+  assembling numpy feeds (`prepare()` plain, `prepare_ssml()` with per-token
+  prosody arrays and break plans). Unknown chars are *filtered* (matches the
+  original pipeline's silent dropping, unlike the strict default of
+  `tokenize()`).
+- `ssml.py` — stdlib-only `<speak>` parser (break/prosody/p/s, upstream
+  tables and errors mirrored, deviations documented); ms→frames clock.
 - `homograph_solver.py` — `OnnxStress` (tokenizer + regex/phrases + ORT batch
   + string assembly) and `FullStress` (homographs-then-ngrams ordering with
   the original skip-list wiring).
@@ -85,35 +91,52 @@ the models (one-off export, outside this repo).
 silero/                          # repo root
 ├── silero_onnx/                 # torch-free runtime package (ships in the wheel)
 │   ├── __init__.py              # public facade: SileroTTS, main
-│   ├── engine.py                # sessions, synthesize(), CLI
-│   ├── frontend.py              # normalize/tokenize/TorchFreeFrontend
-│   ├── homograph_solver.py      # OnnxStress + FullStress
-│   ├── ngram_accentor.py        # OnnxNgram
+│   ├── engine.py                # ORT sessions, synthesize()/to_file(), CLI (--ssml, --examples)
+│   ├── frontend.py              # normalize/tokenize/TorchFreeFrontend (+ prepare_ssml)
+│   ├── ssml.py                  # stdlib-only <speak> parser (break/prosody/p/s tables)
+│   ├── homograph_solver.py      # OnnxStress + FullStress (homographs-then-ngrams)
+│   ├── ngram_accentor.py        # OnnxNgram (plain-word stress)
 │   ├── bert_tokenizer.py        # vendored stdlib-only WordPiece
-│   └── data/*.json              # runtime tables (shipped as package-data)
+│   └── data/*.json              # runtime tables shipped as package-data: symbols/speakers/
+│                                 # tokenizer/homodict/phrases/ngrams/exceptions/stress_cfg/
+│                                 # pause (sil_value for fx_pauses)
 ├── scripts/                     # one-off build: torch allowed, dormant after build
 │   ├── requirements-export.txt  # build-env installer (extra + CPU torch index)
-│   ├── export_all.py            # orchestrator: fixtures, then the 5 exporters
-│   ├── make_fixtures.py         # [gen] onnx/fixtures/*.pt
-│   ├── export_acoustic.py       # [gen] onnx/acoustic_v5_ru.onnx (+ .data)
-│   ├── export_vocoder.py        # [gen] onnx/vocoder_v5_ru.onnx
-│   ├── export_istft.py          # [gen] onnx/istft_48k.onnx (+ .data)
-│   ├── export_stress.py         # [gen] onnx/silero_stress.onnx
-│   ├── export_ngram.py          # [gen] onnx/ngram_core.onnx
-│   ├── check_models.py          # deployment check (torch-free, no artifacts)
-│   ├── _common.py               # gates, L1/L2 helpers, unified result-log format
-│   ├── acoustic.py, build_acoustic.py, encoder.py, decoder.py,
-│   │   fftblock.py, slowmha.py, predictors.py, istft_model.py,
-│   │   layernorm.py             # clean torch ports vendored with the exporters
+│   ├── export_all.py            # orchestrator: make_fixtures, then the 5 exporters
+│   ├── make_fixtures.py         # [gen] onnx/fixtures/*.pt + make_fixtures_result.txt
+│   ├── export_acoustic.py       # acoustic transplant+export | [gen] acoustic_v5_ru.onnx (+ .data)
+│   ├── export_vocoder.py        # vocoder wrap+export        | [gen] vocoder_v5_ru.onnx
+│   ├── export_istft.py          # real-valued ISTFT export   | [gen] istft_48k.onnx (+ .data)
+│   ├── export_stress.py         # homosolver BERT-tiny export | [gen] silero_stress.onnx
+│   ├── export_ngram.py          # EmbeddingBag+heads export   | [gen] ngram_core.onnx
+│   ├── check_models.py          # deployment check (torch-free, generates nothing)
+│   ├── check_parity.py          # torch-vs-ONNX e2e parity (build env only, generates nothing)
+│   ├── _common.py               # L1/L2 gates, seeds, unified `# header → L1/L2 → RESULT` log format
+│   ├── acoustic.py, build_acoustic.py, encoder.py, decoder.py, fftblock.py,
+│   │   slowmha.py, predictors.py, istft_model.py, layernorm.py  # clean torch ports (transplant target)
 │   ├── README.md                # build quickstart + per-script table
 │   └── DEVELOPMENT.md           # exporter internals, thresholds, maintenance
-├── tests/                       # torch-free suites (29 tests, no fixtures)
-│   ├── test_production.py
-│   └── test_extended_robustness.py
-├── onnx/                        # [gen, git-ignored] build output, never committed
-│   ├── *.onnx (+ .data)         # the five models
-│   ├── fixtures/*.pt            # generated references
-│   └── *_result.txt             # per-step gate logs (`# header` → `L1/L2` → `RESULT`)
+├── tests/                       # torch-free suites (58 tests, no fixtures, no torch)
+│   ├── test_production.py       # frontend/stress/facade/synthesis/errors
+│   ├── test_extended_robustness.py  # edges/threads/memory/integrity/RTF
+│   └── test_ssml.py             # SSML parser contract + prosody/break behavior + CLI
+├── onnx/ [gen]                  # local build output, git-ignored, never committed
+│   ├── acoustic_v5_ru.onnx [gen]  # ~1.2 MB graph: ids/spk/rates/coefs -> mel + durations
+│   ├── acoustic_v5_ru.onnx.data [gen]  # ~30 MB externalized acoustic weights
+│   ├── vocoder_v5_ru.onnx [gen]   # ~58 MB: mel -> mag/x/y spectral parts
+│   ├── istft_48k.onnx [gen]       # ~25 KB graph: (mag,x,y) -> waveform (float64 IDFT core)
+│   ├── istft_48k.onnx.data [gen]  # ~92 MB IDFT cos/sin bases + window
+│   ├── silero_stress.onnx [gen]   # ~117 MB homosolver BERT-tiny (input_ids + spans -> logits)
+│   ├── ngram_core.onnx [gen]      # ~8 MB EmbeddingBag + stress/yo heads
+│   ├── fixtures/ [gen]            # generated references (make_fixtures.py, seed 42)
+│   │   ├── stress_ref.pt [gen]    # 7 real homograph windows for export_stress
+│   │   └── spec_ref.pt [gen]      # real spectrum for export_istft gates
+│   ├── make_fixtures_result.txt [gen]   # fixture generation log
+│   ├── export_acoustic_result.txt [gen] # acoustic L1/L2 gate log
+│   ├── export_vocoder_result.txt [gen]   # vocoder L1/L2 gate log
+│   ├── export_istft_result.txt [gen]     # istft L1/L2 gate log
+│   ├── export_stress_result.txt [gen]    # stress L1/L2 gate log
+│   └── export_ngram_result.txt [gen]     # ngram L1/L2 gate log
 ├── pyproject.toml               # runtime deps (torch-free) + export/dev extras
 ├── README.md                    # user quickstart (zero → audio)
 └── DEVELOPMENT.md               # this file
@@ -145,9 +168,12 @@ adding a model means one row here, one exporter, one `EXPECTED` entry.
 
 ## 6. Prospects (ordered, each independently shippable)
 
-1. SSML `<break>` pauses: split the acoustic graph at the len_reg boundary,
-   run pause ops (`get_support_ids`/`process_pauses`/`fx_pauses`) in numpy
-   between two ONNX calls. All pieces are plain tensor code.
+1. SSML `<break>` on comma positions via the batch-2 support path
+   (re-predicted neighbor durations): currently approximated by
+   override+silence (pause exact, neighbors may differ slightly).
+   Needs a graph re-export for batch-2 duration prediction — do it
+   only if the measured delta ever matters. Base `<break>` support
+   (two-pass forcing + numpy fx_pauses port) and `<prosody>` are done.
 2. 8/24 kHz outputs via the PQMF downsampling path (currently 48 kHz only).
 3. GPU execution (CUDA EP) + FP16 revisit: FP16 was measured on CPU and
    rejected (broken loads, destroyed vocoder quality, zero speedup).

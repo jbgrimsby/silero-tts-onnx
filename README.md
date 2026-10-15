@@ -103,14 +103,27 @@ print(tts.speakers)   # ['aidar', 'baya', 'eugene', 'kseniya', 'xenia']
 ```bash
 silero-onnx "Привет! Меня зовут Ксения." -o out.wav --speaker xenia
 silero-onnx --speakers
-silero-onnx --help   # --models, --output, --speaker
+silero-onnx --help   # --models, --output, --speaker, --ssml
+silero-onnx --examples
 ```
+
+## SSML (`--ssml` / `ssml=True`)
+
+`<speak>` root is mandatory. Supported: `<break time="500ms"/>`
+(or `strength="weak"`…`"x-strong"`), `<prosody rate="fast"|"150%"
+pitch="high"|"+12%"|>`, `<p>`/`<s>` (imply breaks). Prosody needs one
+acoustic pass; `<break>` pauses need a second pass with forced
+durations (exact frames, e.g. 500 ms → 40) plus mel silencing — no
+model re-export was needed. Limits, all measured: fractional seconds
+(`1.5s`) fail like upstream; breaks on commas skip upstream's
+support re-prediction (pause itself stays exact); user `+` stress
+marks keep working inside SSML.
 
 ## Tests
 
 ```bash
 py -3.12 -m pip install -e ".[dev]"
-py -3.12 -m pytest tests/ -v   # 29 tests, ~15 s, torch-free guaranteed
+py -3.12 -m pytest tests/ -v   # 58 tests, ~25 s, torch-free guaranteed
 ```
 
 ## Notes

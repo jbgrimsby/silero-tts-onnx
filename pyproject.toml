@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "silero-onnx-tts"
-version = "0.1.0"
+version = "0.2.0"
 description = "Silero TTS v5 RU inference through ONNX Runtime (48 kHz, CPU)"
 readme = "README.md"
 requires-python = ">=3.10"
