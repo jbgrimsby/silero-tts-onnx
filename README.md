@@ -12,7 +12,7 @@ cd silero
 #    hence a separate venv; the runtime itself stays torch-free).
 py -3.12 -m venv .venv-build
 .venv-build\Scripts\activate
-pip install -r scripts/requirements-export.txt
+python -m pip install -r scripts/requirements-export.txt   # plain `python`: inside the venv it IS 3.12 (`py -3.12` would bypass the venv)
 $env:PYTHONUTF8 = '1'   # Windows only: torch prints ✅/❌, cp1252 console crashes
                         # without UTF-8 mode. Session-only: stays after
                         # deactivate until the shell closes (Remove-Item Env:PYTHONUTF8 to unset)
@@ -60,7 +60,9 @@ py -3.12 -m pip install -e .     # runtime only: onnxruntime/numpy/soundfile/num
 vs the build env (separate venv, torch allowed, one-off model export):
 
 ```bash
-pip install -r scripts/requirements-export.txt   # torch/onnx/onnxscript/… + CPU torch index
+py -3.12 -m venv .venv-build
+.venv-build\Scripts\activate
+python -m pip install -r scripts/requirements-export.txt   # inside .venv-build (plain python = venv python); torch/onnx/onnxscript + CPU torch index
 ```
 
 | | `pip install -e .` | `pip install -r scripts/requirements-export.txt` |
@@ -70,7 +72,7 @@ pip install -r scripts/requirements-export.txt   # torch/onnx/onnxscript/… + C
 | Where | your normal env | a separate `.venv-build` |
 | When | always (to use the voices) | once (to build `onnx/`, then dormant) |
 
-Python 3.10–3.12.
+Python 3.12.
 
 ## Models
 
@@ -94,6 +96,12 @@ Inference needs a directory with five self-contained ONNX models
 These are produced once by the export pipeline (see `DEVELOPMENT.md`);
 they are data, not code, and are not part of the wheel. Pass the
 directory explicitly or via the `SILERO_ONNX_MODELS` variable.
+
+Shortcut without any build: download the five `.onnx` files from the
+GitHub Releases page into a local `onnx/` directory — that plus
+`pip install -e .` is everything the runtime needs (fixtures, gate
+logs and torch are build-time only; the tokenizer cache rebuilds
+itself on first run).
 
 ## Usage
 
