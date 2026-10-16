@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "silero-onnx-tts"
-version = "0.2.1"
+version = "0.3.0"
 description = "Silero TTS v5 RU inference through ONNX Runtime (48 kHz, CPU)"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "CC-BY-NC-SA-4.0" }
 dependencies = [
     # NOTE: torch is intentionally NOT required at runtime: inference is

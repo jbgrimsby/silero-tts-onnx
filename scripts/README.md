@@ -51,7 +51,7 @@ each exporter puts `scripts/` on `sys.path` (see `_common.py`).
 
 ## Build environment setup
 
-Python 3.10–3.12, CPU is enough. Use a **separate venv** — the runtime
+Python 3.12, CPU is enough. Use a **separate venv** — the runtime
 must never see torch:
 
 ```bash
