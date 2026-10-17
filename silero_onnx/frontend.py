@@ -136,20 +136,6 @@ def normalize(text: str) -> str:
     return expand_numbers(expand_abbreviations(text))
 
 
-def build_symbol_table():
-    """Return (symbols, symbol_to_id) exactly as v5_ru.pt uses them.
-
-    Needs torch + the hub model once (reads the live tables, no guessing).
-    """
-    import torch
-    torch._C._jit_set_profiling_mode(False)
-    model, _ = torch.hub.load(repo_or_dir="snakers4/silero-models",
-                               model="silero_tts", language="ru",
-                               speaker="v5_ru", trust_repo=True)
-    part = model.packages[0]
-    return list(part.symbols), dict(part.symbol_to_id)
-
-
 def tokenize(text: str, symbol_to_id, sos_token="|", eos_token="~",
              add_sos_eos=False, errors="raise") -> list:
     """Map cleaned+stressed text to symbol ids.
@@ -188,7 +174,12 @@ def prepare(text: str, symbol_to_id, stress=True):
 
 
 def load_symbol_table(data_dir=DATA_DIR):
-    """Torch-free symbol table (dumped once from the live model)."""
+    """Torch-free symbol table (dumped + validated by the build).
+
+    The one torch-side hub read lives in scripts/make_fixtures.py
+    (write-or-fail against the committed table); the runtime never
+    imports torch.
+    """
     import json
     with open(os.path.join(data_dir, "symbols.json"), encoding="utf-8") as f:
         d = json.load(f)
@@ -221,6 +212,23 @@ class TorchFreeFrontend:
                 f"silero-onnx: error: cannot load frontend data from "
                 f"'{data_dir}': {e}")
 
+    def text_to_ids(self, text):
+        """Normalized+stressed text -> (sos/eos id list, stressed text).
+
+        Shared by prepare() (v5 feeds) and Strategy_V5_6 (which also
+        needs the stressed string for focus re-marking)."""
+        t = normalize(text)
+        return self.stress_and_tokenize(t)
+
+    def stress_and_tokenize(self, clean_text):
+        """Already-normalized text -> (sos/eos id list, stressed text)."""
+        t = self.stress(clean_text)
+        # errors="filter": drop unknown chars silently, exactly like the
+        # original prepare_text_input regex (emoji/latin/specials never crash).
+        ids = add_sos_eos(tokenize(t, self.symbol_to_id, errors="filter"),
+                          self.symbol_to_id)
+        return ids, t
+
     def prepare(self, text, speaker="xenia"):
         """Text -> dict of numpy arrays matching acoustic ONNX inputs."""
         import numpy as np
@@ -242,7 +250,8 @@ class TorchFreeFrontend:
 
     def prepare_ssml(self, ssml_text, speaker="xenia"):
         """SSML -> (feeds, breaks): per-token rate/pitch arrays plus
-        [(token_pos, frames)] pause plans for the engine two-pass path.
+        [(token_pos, frames)] pause plans for the shared two-pass path
+        (strategies/pauses.py).
 
         Segments are normalized with OUR normalize(), jointly stressed
         (cross-segment context, mirroring upstream word-count re-split),

@@ -17,6 +17,7 @@ import tempfile
 import time
 
 import numpy as np
+import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -24,20 +25,19 @@ if ROOT not in sys.path:
 
 assert "torch" not in sys.modules, "test process imported torch before package!"
 
+from silero_onnx import env  # noqa: E402
+
 from silero_onnx import SileroTTS  # noqa: E402
 from silero_onnx import frontend as F  # noqa: E402
 
 def _default_models():
-    env = os.environ.get("SILERO_ONNX_MODELS")
-    if env:
-        return env
-    local = os.path.normpath(os.path.join(ROOT, "onnx"))
-    if not os.path.isfile(os.path.join(local, "acoustic_v5_ru.onnx")):
-        raise SystemExit(
-            "tests: no ONNX models in " + local + " — build them once: "
-            "python scripts/export_all.py (see scripts/README.md), or set "
-            "SILERO_ONNX_MODELS")
-    return local
+    """Model dir: SILERO_ONNX_MODELS override, else the local build
+    output (<repo>/models/onnx). Model tests are marked and skipped
+    with a reason when the set is absent (see tests/conftest.py)."""
+    envdir = os.environ.get(env.MODELS_DIR_VAR)
+    if envdir:
+        return envdir
+    return os.path.normpath(os.path.join(ROOT, "models", "onnx"))
 
 
 MODELS = _default_models()
@@ -50,7 +50,7 @@ _tts = None
 def tts():
     global _tts
     if _tts is None:
-        _tts = SileroTTS(model_dir=MODELS)
+        _tts = SileroTTS(model_dir=MODELS, version="v5_ru")
     return _tts
 
 
@@ -64,11 +64,13 @@ def test_aaa_no_torch_at_import():
     assert "torch" not in sys.modules
 
 
+@pytest.mark.requires_models
 def test_emoji_latin_specials():
     audio, _dur = tts().synthesize("Привет! Hello 😀 #тег @user 100% !!!")
     _valid_audio(audio, 48000)
 
 
+@pytest.mark.requires_models
 def test_negative_and_fractional_numbers():
     audio, _dur = tts().synthesize("Температура -5 градусов, было 3,5 кг.")
     _valid_audio(audio, 48000)
@@ -77,6 +79,7 @@ def test_negative_and_fractional_numbers():
     assert "минус пять" in norm and "три целых пять" in norm
 
 
+@pytest.mark.requires_models
 def test_punctuation_glue():
     # no spaces after punctuation: must not crash (matches original:
     # no space insertion, comma/excl are regular symbols)
@@ -84,6 +87,7 @@ def test_punctuation_glue():
     _valid_audio(audio, 48000)
 
 
+@pytest.mark.requires_models
 def test_long_multiparagraph():
     para = ("В недрах тундры выдры в гетрах тырят в вёдра ядра кедров. "
             "Теплый хлеб пахнет домом, а капли дождя стучат по стеклу.\n")
@@ -94,6 +98,7 @@ def test_long_multiparagraph():
     assert len(audio_long) > 3 * len(audio_short)
 
 
+@pytest.mark.requires_models
 def test_degenerate_strings():
     for bad in ("", "   ", "\n\t  \n"):
         try:
@@ -107,6 +112,7 @@ def test_degenerate_strings():
     _valid_audio(audio, 1)
 
 
+@pytest.mark.requires_models
 def test_thread_safety_6x():
     t = tts()
     t.synthesize(SHORT)  # warmup (lazy ORT sessions + tokenizer cache first)
@@ -173,6 +179,7 @@ def _rss_mb():
     return None
 
 
+@pytest.mark.requires_models
 def test_memory_50x():
     t = tts()
     for _ in range(3):
@@ -195,6 +202,7 @@ def test_memory_50x():
     assert rss1 - rss0 < 200, f"possible leak: +{rss1 - rss0:.0f}MB over 50 runs"
 
 
+@pytest.mark.requires_models
 def test_audio_integrity():
     audio, _dur = tts().synthesize(MEDIUM)
     assert np.all(np.isfinite(audio)), "NaN/Inf found"
@@ -205,6 +213,7 @@ def test_audio_integrity():
     assert 0.005 < rms < 0.6, f"bad energy level: rms {rms}"
 
 
+@pytest.mark.requires_models
 def test_fault_unknown_speaker_case():
     try:
         tts().synthesize("Привет.", speaker="XENIA")
@@ -219,7 +228,7 @@ def test_fault_empty_model_files():
         for f in ("acoustic_v5_ru.onnx", "vocoder_v5_ru.onnx", "istft_48k.onnx"):
             open(os.path.join(tmp, f), "wb").close()  # present but empty/broken
         try:
-            SileroTTS(model_dir=tmp)
+            SileroTTS(model_dir=tmp, version="v5_ru")
         except SystemExit as e:
             assert "sidecar" in str(e.code) or "cannot load" in str(e.code), str(e.code)
         else:
@@ -237,6 +246,7 @@ def test_fault_corrupt_data_dir():
             raise AssertionError("corrupt data dir must fail cleanly")
 
 
+@pytest.mark.requires_models
 def test_rtf_benchmark():
     t = tts()
     t.synthesize(MEDIUM)  # warmup

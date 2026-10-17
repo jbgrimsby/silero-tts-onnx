@@ -9,15 +9,30 @@ Writes <out-dir>/fixtures/ (git-ignored build output, NOT versioned):
 
 Both are *inputs* to the export gates (torch-vs-torch fidelity and
 ORT-vs-torch references), never to tests: the suite is torch-free and
-must run without them. Runs automatically as step 0 of export_all.py,
-or standalone:
+must run without them.
+
+make_spec() additionally validates the versioned runtime tables in
+silero_onnx/data/ (speakers.json, symbols.json) against the hub
+package — write-or-fail, never silent (see _common.write_*_json).
+
+Runs automatically as step 0 of export_all.py, or standalone:
 
   python scripts/make_fixtures.py [--out-dir onnx]
 """
 import argparse
 import os
+import sys
 
-from _common import (DEFAULT_OUT_DIR, Logger, begin, finish, fixtures_dir)
+# v5 build blocks moved to scripts/strategies/v5/ (symmetric layout).
+_V5_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "strategies", "v5")
+if _V5_DIR not in sys.path:
+    sys.path.insert(0, _V5_DIR)
+del _V5_DIR
+
+from _common import (DEFAULT_OUT_DIR, Logger, begin, finish, fixtures_dir,
+                     package_data_path, write_speakers_json,
+                     write_symbols_json)
 
 
 # Fixed sentence pool: must yield >= 7 neural (non-regex) homograph
@@ -99,6 +114,22 @@ def make_spec(log):
     model.to("cpu")
     part = model.packages[0]
     jit_m = part.models[0]
+
+    # Speaker map for the torch-free runtime: names AND ids come from
+    # the hub package's own get_speakers() (never positional guesses).
+    # Written to the versioned package data (review + commit the diff);
+    # a later version with a different table fails loudly in
+    # write_speakers_json instead of overwriting.
+    entries = [(name, *part.get_speakers(name)) for name in part.speakers]
+    entries = [(name, ids[0], mid) for name, ids, mid in entries]
+    write_speakers_json(entries, package_data_path("speakers.json"),
+                        log.log)
+
+    # Same write-or-fail discipline for the shared symbol table: the
+    # runtime package reads it but must never import torch to
+    # regenerate it — that one hub read lives here, in the build.
+    write_symbols_json(list(part.symbols), dict(part.symbol_to_id),
+                       package_data_path("symbols.json"), log.log)
 
     def get(root, *names):
         m = root
