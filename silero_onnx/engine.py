@@ -58,7 +58,7 @@ class EngineFactory:
 
     @classmethod
     def create_engine(cls, language_id="ru", version_id=DEFAULT_VERSION,
-                      model_dir=None, data_dir=None):
+                      model_dir=None, data_dir=None, lower_memory=False):
         # 1. Resolve declarative layers first: no sessions are touched
         #    until the pair is proven compatible.
         try:
@@ -70,6 +70,12 @@ class EngineFactory:
                 f"silero-onnx: error: cannot load frontend data for "
                 f"language '{language_id}': {e}")
         version = ModelRegistry.get(version_id)
+        allowed = getattr(version, "frontend_ids", ())
+        if allowed and language_id not in allowed:
+            raise ValueError(f"Version '{version_id}' requires frontend {sorted(allowed)}")
+        bundle_id = getattr(language, "bundle_id", None)
+        if bundle_id is not None and bundle_id != version_id:
+            raise ValueError(f"Frontend bundle '{bundle_id}' does not match version '{version_id}'")
         if language.requires_stress and not version.supports_stress:
             raise ValueError(
                 f"Language '{language_id}' requires stress, but version "
@@ -118,7 +124,12 @@ class EngineFactory:
                     f"(version '{version_id}' needs: "
                     f"{', '.join(version.model_files().values())})")
             try:
-                sessions[key] = create_session(path)
+                basic = key in version.spec.model_set.basic_optimization_models
+                if lower_memory or basic:
+                    sessions[key] = create_session(path, lower_memory=lower_memory,
+                                                   basic_optimization=basic)
+                else:
+                    sessions[key] = create_session(path)
             except SystemExit:
                 raise
             except Exception as e:
@@ -136,10 +147,10 @@ class SileroTTS:
     """Version- and language-selected facade (defaults: ru, v5_6_ru)."""
 
     def __init__(self, model_dir=None, data_dir=None,
-                 version=DEFAULT_VERSION, language="ru"):
+                 version=DEFAULT_VERSION, language="ru", lower_memory=False):
         self._engine = EngineFactory.create_engine(
             language_id=language, version_id=version,
-            model_dir=model_dir, data_dir=data_dir)
+            model_dir=model_dir, data_dir=data_dir, lower_memory=lower_memory)
 
     @property
     def version(self):

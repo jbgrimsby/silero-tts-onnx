@@ -47,6 +47,11 @@ class AbstractTTSStrategy(ABC):
     def synthesize(self, text, speaker="xenia", sample_rate=SAMPLE_RATE,
                    ssml=False):
         """Validate the request, then run the version-specific pipeline."""
+        self._validate_request(text, speaker, sample_rate, ssml)
+        return self._synthesize(text, speaker, ssml=ssml)
+
+    def _validate_request(self, text, speaker, sample_rate, ssml):
+        """Shared validation for strategies with optional frontend arguments."""
         if not text or not text.strip():
             raise SystemExit("silero-onnx: error: empty text: nothing to synthesize")
         if sample_rate != SAMPLE_RATE:
@@ -60,7 +65,6 @@ class AbstractTTSStrategy(ABC):
         if speaker not in self._frontend.speakers:
             raise ValueError(f"unknown speaker '{speaker}', want one of "
                              f"{sorted(self._frontend.speakers)}")
-        return self._synthesize(text, speaker, ssml=ssml)
 
     @abstractmethod
     def _synthesize(self, text, speaker, ssml=False):

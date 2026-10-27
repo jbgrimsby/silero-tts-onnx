@@ -2,7 +2,8 @@
 
 This additive path supports the ten checkpoint identities listed in
 `scripts/multilingual-checkpoints.json`. It does not change the existing
-Russian `SileroTTS` factory, CLI, SSML, emphasis or stress strategies.
+Russian defaults, CLI, SSML, emphasis or stress strategies. The multilingual
+facade uses the same layered `EngineFactory`, not a separate session pipeline.
 
 ## Use
 
@@ -19,6 +20,23 @@ tts = MultilingualRuntime("models/multilingual/v3_en", lower_memory=True)
 audio, symbol_durations = tts.synthesize("Hello, world!", "en_0", "en")
 sf.write("hello.wav", audio, tts.data["sample_rate"])
 ```
+
+For the general public API, explicitly opt in to the additional registrations:
+
+```python
+from silero_onnx import SileroTTS
+from silero_onnx.multilingual import register_multilingual
+
+register_multilingual()
+tts = SileroTTS(model_dir="models/multilingual/v3_en", language="fixed",
+                version="v3_en", lower_memory=True)
+audio, durations = tts.synthesize("Hello, world!", speaker="en_0", lang="en")
+```
+
+`fixed` denotes the literal, bundle-defined frontend, not automatic language
+detection or a replacement for the stress-aware Russian `ru` frontend. A bundle
+must match the selected checkpoint ID. Opt-in registration is idempotent and
+does not replace Russian registrations or add unsupported CLI choices.
 
 Use a fixed voice from `frontend.json`'s `speaker_to_id`. The return value is
 mono floating-point audio plus model symbol durations, not streaming chunks.
@@ -84,6 +102,15 @@ Recheck a completed export in the separate torch-free runtime environment:
 python scripts/check_multilingual.py --model-dir models/multilingual/v3_en --fixtures-dir models/multilingual/v3_en --lower-memory
 python scripts/package_multilingual.py --model-dir models/multilingual/v3_en --output dist/silero-v3_en-onnx-48000.zip
 ```
+
+To check all ten retained bundles through the layered public APIs in both memory
+modes, including every original-waveform fixture:
+
+```text
+python scripts/check_multilingual_architecture.py --bundles-root models/multilingual --fixtures-root models/multilingual --output results.json
+```
+
+The resulting report may contain local paths. Review/redact it before sharing.
 
 Packaging checks graph hashes and uses a strict file allowlist. It includes
 the model's license and attribution, not executable source checkpoints,

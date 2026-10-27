@@ -56,3 +56,31 @@ older run as a test of newer code. No raw personal NVDA logs are included.
 Current-branch model-free tests, exporter smoke/rebuild checks and retained
 model runtime comparisons are recorded separately in the handoff validation
 record. They do not silently replace these original measurements.
+
+### Layered architecture rebase (2026-10-26)
+
+The contribution was locally rebased onto upstream architecture revision
+`10e5698504e14b39ffd5f72dc2c7b02bd7893747`. Multilingual synthesis now resolves
+through the public language/frontend/model/strategy registries and the same
+`EngineFactory` as the Russian path. The old convenience API remains a facade.
+Existing converted graph bytes and frontend rules were retained; no
+reconversion was necessary.
+
+All ten checkpoint bundles passed their 36 retained original-waveform fixtures
+in both normal and lower-memory modes: 72 comparisons. Ten additional checks
+used the general `SileroTTS(language="fixed", version=...)` API. Maximum absolute
+waveform difference was 0.00060463, below the existing 0.005 gate. All declared
+fixed speaker names remained available; this did not synthesize every speaker.
+The runtime stayed torch-free.
+
+The full suite passed 173 tests, zero skips/failures, with both Russian model
+generations present from the official v0.5.0 release. The release ZIP and all
+nine extracted graph digests matched the published SHA-256 identities. Tests
+used ONNX Runtime 1.29.0 on Windows CPU, two intra-op and one inter-op thread.
+The source before this rebase had 39 Russian model tests skipped when assets
+were absent; those skips are not counted as this completed run.
+
+This validates the adapted library/API and retained waveform fixtures, not a
+new NVDA package, performance benchmark or new linguistic-quality assessment.
+No publication, model-hosting change or live Sonata installation accompanied
+the local rebase.

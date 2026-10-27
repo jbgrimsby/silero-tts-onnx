@@ -17,6 +17,8 @@ class ModelSet:
     acoustic_inputs: Tuple[str, ...]
     shared_models: FrozenSet[str] = field(
         default_factory=lambda: frozenset({"stress", "ngram"}))
+    #: Artifact-scoped compatibility policy; empty preserves existing defaults.
+    basic_optimization_models: FrozenSet[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)

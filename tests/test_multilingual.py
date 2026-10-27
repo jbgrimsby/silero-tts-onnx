@@ -8,9 +8,22 @@ import pytest
 from silero_onnx.multilingual import MultilingualRuntime
 
 
+@pytest.fixture(autouse=True)
+def isolate_extension_registration(monkeypatch):
+    from silero_onnx.languages import LanguageRegistry
+    from silero_onnx.frontend import FrontendRegistry
+    from silero_onnx.models import ModelRegistry
+    from silero_onnx.strategies import StrategyFactory
+    for registry, attribute in ((LanguageRegistry, '_factories'),
+                               (FrontendRegistry, '_factories'),
+                               (ModelRegistry, '_versions'),
+                               (StrategyFactory, '_strategies')):
+        monkeypatch.setattr(registry, attribute, dict(getattr(registry, attribute)))
+
+
 def data():
     symbols = '_~| !"\',-.:;?abcdefghijklmnopqrstuvwxyz'
-    return dict(symbols=symbols, symbol_to_id={c: i for i, c in enumerate(symbols)},
+    return dict(id='v3_en', symbols=symbols, symbol_to_id={c: i for i, c in enumerate(symbols)},
                 speaker_to_id={"en_0": 0}, symb_ascii_dict={}, modern=False,
                 phons=False, spectral=False, sos="|", eos="~", sample_rate=48000)
 
@@ -66,11 +79,15 @@ def test_modern_frontend_boundaries_and_newline():
 def test_options_are_scoped_to_istft(tmp_path, monkeypatch, low):
     d = data()
     d["spectral"] = True
+    d['id'] = 'v5_turkic'
     (tmp_path / "frontend.json").write_text(json.dumps(d), encoding="utf-8")
+    for name in ('acoustic.onnx', 'vocoder.onnx', 'istft.onnx'):
+        (tmp_path / name).touch()
     import onnxruntime as ort
     seen = []
 
-    def session(path, opts, providers):
+    def session(path, sess_options, providers):
+        opts = sess_options
         seen.append((Path(path).name, opts.graph_optimization_level,
                      opts.enable_cpu_mem_arena, opts.enable_mem_pattern, providers))
         return object()
@@ -92,17 +109,19 @@ def test_reject_nonvalidated_sample_rate(tmp_path):
         MultilingualRuntime(tmp_path)
 
 
-def test_synthesis_chain_and_finite_gate():
+def test_synthesis_chain_and_finite_gate(tmp_path, monkeypatch):
     class Session:
         def __init__(self, values):
             self.values = values
         def run(self, outputs, feeds):
             return self.values
-    tts = MultilingualRuntime.__new__(MultilingualRuntime)
-    tts.data = data()
-    tts.acoustic = Session([np.zeros((1, 1, 1)), np.ones((1, 3))])
-    tts.vocoder = Session([np.array([[[0.1, 0.2]]], dtype=np.float32)])
-    tts.istft = None
+    (tmp_path / 'frontend.json').write_text(json.dumps(data()), encoding='utf8')
+    sessions = {'acoustic.onnx': Session([np.zeros((1, 1, 1)), np.ones((1, 3))]),
+                'vocoder.onnx': Session([np.array([[[0.1, 0.2]]], dtype=np.float32)])}
+    for name in sessions:
+        (tmp_path / name).touch()
+    monkeypatch.setattr('silero_onnx.engine.create_session', lambda path: sessions[Path(path).name])
+    tts = MultilingualRuntime(tmp_path)
     audio, durations = tts.synthesize("hello", "en_0")
     assert audio.shape == (2,)
     assert durations.shape == (1, 3)

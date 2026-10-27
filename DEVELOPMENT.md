@@ -358,6 +358,29 @@ instructions live next to the files:
   examples); "how it works", measurements and CI details live here or in
   `scripts/*`. Contract and doc map: [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
+## Fixed-voice multilingual extension
+
+`multilingual.py` is an opt-in registration/bootstrap and compatibility facade.
+It calls `EngineFactory`; it does not open sessions or implement synthesis.
+`Language_Fixed` reads a bundle's literal frontend data and owns the original
+speaker-dependent text rules. `TextFrontend_Fixed` assembles tensors;
+`Version_Fixed` declares each of ten checkpoint IDs and its two/three-session
+topology; `Strategy_Fixed` uses injected sessions and the shared `FeedBuilder`.
+The namespace `fixed` intentionally does not replace stress-aware `ru`.
+
+The factory checks a bundle's ID against the selected version before opening
+sessions. `register_multilingual()` checks registry collisions before changing
+registrations and is idempotent; base Russian CLI choices remain unchanged.
+`lower_memory` is an opt-in session-factory option. ModelSet declares a BASIC
+optimization requirement only for fixed spectral iSTFT; acoustic/vocoder and
+existing Russian defaults are unchanged. Shared request validation rejects
+unknown speakers, SSML and unsupported rates before fixed-model inference.
+
+Run `scripts/check_multilingual_architecture.py` against the retained model and
+fixture roots for all original-waveform gates through both public APIs and
+both memory modes. The original conversion gates and limitations remain in
+`docs/multilingual-evaluation.md`; layering is not a new linguistic-quality claim.
+
 ## 7. Prospects (ordered, each independently shippable)
 
 1. v5_ru SSML `<break>` on comma positions via the batch-2 support path
